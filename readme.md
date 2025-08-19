@@ -137,4 +137,4 @@ Rythumitra is a **paradigm shift in agricultural advisory**:
 
 ---
 
-🚀 *Built with AI, for Farmers. Scaling Agriculture in the Global South.*  
+🚀 *Built for Farmers. Scaling Agriculture in the Global South.*  
