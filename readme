@@ -20,7 +20,7 @@ The solution integrates **three specialized agriculture LLMs**, **real-time sate
 ## 🏗️ Proposed Implementation  
 
 ### 1. System Architecture  
-![System Architecture](Images/system_architecture.png)  
+![System Architecture](Images/Capital_System_Architecture.jpg)  
 
 AgroBot follows a **multi-agent workflow** with four components:  
 - **Knowledge Ingestion Pipeline**  
