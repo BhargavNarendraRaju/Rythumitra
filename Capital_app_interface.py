@@ -1,4 +1,4 @@
-%%writefile capital_man.py
+
 
 import json
 import time
@@ -615,3 +615,4 @@ st.markdown(f"""
         <div>Rythumitra AI Assistant v8.0 • Powered by KissanAI</div>
     </div>
 """, unsafe_allow_html=True)
+
