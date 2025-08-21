@@ -27,6 +27,27 @@ A multilingual AI-powered agricultural assistant that provides farmers with expe
 ## Installation
 
 1. Clone the repository:
-```bash
+bash
 git clone https://github.com/your-username/rythumitra-ai-farming-assistant.git
 cd rythumitra-ai-farming-assistant
+
+# Usage
+
+## Chat Mode
+Ask agricultural questions in English or Telugu using the chat interface. The AI will route your question to the appropriate specialist and provide tailored advice.
+
+## Plant Disease Detection
+Upload images of plant leaves for AI-powered disease diagnosis. The system will analyze the image and provide treatment recommendations.
+
+## Voice Input
+Use the microphone button to ask questions verbally. The system supports speech recognition in both English and Telugu.
+
+## Location Settings
+Allow location access for precise weather and location-specific advice, or manually set coordinates in the sidebar.
+
+## Model Selection
+Choose between automatic routing (AI selects the best specialist) or manually select from:
+- ASA – Policy Specialist
+- ASB – Agronomy Specialist  
+- ASC – Fact Checker
+
