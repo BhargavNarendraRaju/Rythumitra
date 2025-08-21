@@ -1,3 +1,4 @@
+
 import streamlit as st
 import requests
 import speech_recognition as sr
@@ -43,7 +44,7 @@ ROUTER_OPTIONS = ["Auto (Router decides)"] + list(MODEL_REGISTRY.keys())
 WEATHER_API_KEY = "b10a43e49ad59f27140d077c8f1a6bfd"  # Replace with your actual API key
 
 # Plant disease detection using Hugging Face Inference API
-PLANT_DISEASE_MODEL_REPO = "linkanjarad/mobilenet_v2_1.0_224-plant-disease-identification"
+PLANT_DISEASE_MODEL_REPO = "liriope/PlantDiseaseDetection"  # Updated to the specified model
 PLANT_DISEASE_HF_TOKEN = os.getenv("HF_TOKEN", "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")  # Use environment variable for security
 
 # ----------------------------
@@ -191,7 +192,7 @@ def speech_to_text_from_file(filename):
 # Plant Disease Detection using Hugging Face API
 # ----------------------------
 def predict_plant_disease_hf_api(image):
-    """Predict plant disease using Hugging Face Inference API"""
+    """Predict plant disease using Hugging Face Inference API with the specified model"""
     try:
         # Convert image to bytes
         img_byte_arr = io.BytesIO()
@@ -208,12 +209,29 @@ def predict_plant_disease_hf_api(image):
         
         if response.status_code == 200:
             result = response.json()
+            
+            # Handle different response formats from different models
             if isinstance(result, list) and len(result) > 0:
-                # Get the prediction with highest score
+                # For models that return a list of predictions
                 prediction = max(result, key=lambda x: x['score'])
-                return prediction['label'], prediction['score']
+                label = prediction['label']
+                score = prediction['score']
+                
+                # Format the label for better readability
+                formatted_label = label.replace('_', ' ').title()
+                
+                return formatted_label, score
+            elif isinstance(result, dict) and 'label' in result:
+                # For models that return a single prediction as a dict
+                label = result['label']
+                score = result.get('score', 0.9)  # Default score if not provided
+                
+                # Format the label for better readability
+                formatted_label = label.replace('_', ' ').title()
+                
+                return formatted_label, score
             else:
-                return "Unknown", 0.0
+                return "Unknown disease or plant type", 0.0
         else:
             # Fallback to a simple image analysis if API fails
             return fallback_disease_detection(image), 0.7
@@ -316,7 +334,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Agriculture-themed color scheme
+# Agriculture-themed color scheme with higher contrast for disease detection
 AGRICULTURE_THEME = {
     "primary": "#2e7d32",        # Dark green
     "secondary": "#4caf50",      # Medium green
@@ -331,10 +349,13 @@ AGRICULTURE_THEME = {
     "sidebar_text": "#ffffff",   # White sidebar text
     "weather_bg": "#dcedc8",     # Weather card background
     "rag_step_bg": "#1b5e20",    # Dark green for RAG steps
-    "rag_step_text": "#ffffff"   # White text for RAG steps
+    "rag_step_text": "#ffffff",  # White text for RAG steps
+    "disease_text": "#000000",   # Black text for disease detection (high contrast)
+    "disease_bg": "#ffffff",     # White background for disease detection
+    "uploader_text": "#1b5e20",  # Dark green text for uploader (high contrast)
 }
 
-# Apply theme
+# Apply theme with high contrast for disease detection
 st.markdown(f"""
     <style>
     .stApp {{
@@ -388,21 +409,23 @@ st.markdown(f"""
         font-weight: bold;
     }}
     .disease-result {{
-        color: #000000 !important;
-        background: #ffffff;
+        color: {AGRICULTURE_THEME['disease_text']} !important;
+        background: {AGRICULTURE_THEME['disease_bg']};
         border-left: 5px solid #2e7d32;
         padding: 15px;
         border-radius: 0 10px 10px 0;
         margin: 10px 0;
         font-weight: bold;
+        font-size: 1.1em;
     }}
     .treatment-info {{
-        color: #000000 !important;
-        background: #ffffff;
+        color: {AGRICULTURE_THEME['disease_text']} !important;
+        background: {AGRICULTURE_THEME['disease_bg']};
         border-left: 5px solid #FFD54F;
         padding: 15px;
         border-radius: 0 10px 10px 0;
         margin: 10px 0;
+        font-size: 1em;
     }}
     .confidence-badge {{
         background: #006400;
@@ -410,6 +433,18 @@ st.markdown(f"""
         padding: 5px 10px;
         border-radius: 15px;
         font-weight: bold;
+        font-size: 0.9em;
+    }}
+    .uploader-text {{
+        color: {AGRICULTURE_THEME['uploader_text']} !important;
+        font-weight: bold;
+        font-size: 1.1em;
+    }}
+    .disease-tab-title {{
+        color: {AGRICULTURE_THEME['primary']} !important;
+        font-weight: bold;
+        font-size: 1.5em;
+        margin-bottom: 20px;
     }}
     </style>
 """, unsafe_allow_html=True)
@@ -841,13 +876,14 @@ if st.session_state.current_tab == "Chat":
                     st.json(sources)
 
 else:  # Plant Disease Detection tab
-    st.subheader("🌿 Plant Disease Detection")
-    st.info("Upload an image of a plant leaf to detect potential diseases")
+    st.markdown('<div class="disease-tab-title">🌿 Plant Disease Detection</div>', unsafe_allow_html=True)
+    st.markdown('<div class="uploader-text">Upload an image of a plant leaf to detect potential diseases</div>', unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader(
         "Choose an image...", 
         type=["jpg", "jpeg", "png"],
-        help="Upload a clear image of a plant leaf for disease detection"
+        help="Upload a clear image of a plant leaf for disease detection",
+        label_visibility="collapsed"
     )
 
     if uploaded_file is not None:
@@ -855,7 +891,7 @@ else:  # Plant Disease Detection tab
         image = Image.open(uploaded_file)
         st.image(image, caption="Uploaded Image", use_container_width=True)
         
-        if st.button("🔍 Detect Disease", type="primary"):
+        if st.button("🔍 Detect Disease", type="primary", use_container_width=True):
             with st.spinner("Analyzing image for diseases..."):
                 # Predict disease using Hugging Face API
                 disease, confidence = predict_plant_disease_hf_api(image)
@@ -872,7 +908,7 @@ else:  # Plant Disease Detection tab
                     
                     # Provide additional information based on the detected disease
                     st.markdown("---")
-                    st.subheader("📋 Recommended Treatment")
+                    st.markdown('<div class="uploader-text">📋 Recommended Treatment</div>', unsafe_allow_html=True)
                     
                     # Simple treatment recommendations based on disease type
                     treatment_text = ""
