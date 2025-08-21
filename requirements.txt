@@ -6,7 +6,7 @@ gTTS==2.4.0
 streamlit-js-eval==0.1.5
 pyaudio==0.2.11
 wave==0.0.2
-Pillow==10.2.0
+Pillow==10.1.0
 fastapi==0.110.0
 uvicorn==0.29.0
 pydantic==2.6.4
@@ -15,3 +15,4 @@ langchain-groq==0.1.2
 numpy==1.26.4
 
 python-multipart==0.0.6
+
