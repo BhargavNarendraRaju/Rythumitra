@@ -1,4 +1,3 @@
-
 import streamlit as st
 import requests
 import speech_recognition as sr
@@ -16,11 +15,27 @@ import time
 import os
 from PIL import Image
 import base64
+import numpy as np
+import logging
 
 # Configure logging
-import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Try to import TensorFlow with error handling
+TENSORFLOW_AVAILABLE = False
+PLANT_DISEASE_MODEL = None
+
+try:
+    import tensorflow as tf
+    from tensorflow.keras.models import load_model
+    from tensorflow.keras.preprocessing import image
+    TENSORFLOW_AVAILABLE = True
+    logger.info("TensorFlow imported successfully")
+except ImportError as e:
+    logger.warning(f"TensorFlow not available: {e}. Plant disease detection will be disabled.")
+except Exception as e:
+    logger.warning(f"Error loading TensorFlow: {e}. Plant disease detection will be disabled.")
 
 # ----------------------------
 # Configuration
@@ -36,16 +51,64 @@ MODEL_REGISTRY = {
     },
     "ASC – Fact Checker": {
         "role": "specialist-crosscheck",
-        "color": "#C0392B",
+        "color": "#C0392B"
     }
 }
 
 ROUTER_OPTIONS = ["Auto (Router decides)"] + list(MODEL_REGISTRY.keys())
 WEATHER_API_KEY = "b10a43e49ad59f27140d077c8f1a6bfd"  # Replace with your actual API key
 
-# Plant disease detection using Hugging Face Inference API
-PLANT_DISEASE_MODEL_REPO = "liriope/PlantDiseaseDetection"  # Updated to the specified model
-PLANT_DISEASE_HF_TOKEN = os.getenv("HF_TOKEN", "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")  # Use environment variable for security
+# Plant disease detection model configuration (only if TensorFlow is available)
+if TENSORFLOW_AVAILABLE:
+    from huggingface_hub import hf_hub_download
+    REPO_ID = "Bhargavnarendraraju/Plant_Disease_Detection_model"
+    FILENAME = "plant_disease_efficientnetb4.h5"
+
+    # Define PlantVillage classes
+    CLASS_NAMES = [
+        "Apple___Apple_scab",
+        "Apple___Black_rot",
+        "Apple___Cedar_apple_rust",
+        "Apple___healthy",
+        "Blueberry___healthy",
+        "Cherry_(including_sour)___Powdery_mildew",
+        "Cherry_(including_sour)___healthy",
+        "Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot",
+        "Corn_(maize)___Common_rust_",
+        "Corn_(maize)___Northern_Leaf_Blight",
+        "Corn_(maize)___healthy",
+        "Grape___Black_rot",
+        "Grape___Esca_(Black_Measles)",
+        "Grape___Leaf_blight_(Isariopsis_Leaf_Spot)",
+        "Grape___healthy",
+        "Orange___Haunglongbing_(Citrus_greening)",
+        "Peach___Bacterial_spot",
+        "Peach___healthy",
+        "Pepper,_bell___Bacterial_spot",
+        "Pepper,_bell___healthy",
+        "Potato___Early_blight",
+        "Potato___Late_blight",
+        "Potato___healthy",
+        "Raspberry___healthy",
+        "Soybean___healthy",
+        "Squash___Powdery_mildew",
+        "Strawberry___Leaf_scorch",
+        "Strawberry___healthy",
+        "Tomato___Bacterial_spot",
+        "Tomato___Early_blight",
+        "Tomato___Late_blight",
+        "Tomato___Leaf_Mold",
+        "Tomato___Septoria_leaf_spot",
+        "Tomato___Spider_mites Two-spotted_spider_mite",
+        "Tomato___Target_Spot",
+        "Tomato___Tomato_Yellow_Leaf_Curl_Virus",
+        "Tomato___Tomato_mosaic_virus",
+        "Tomato___healthy"
+    ]
+else:
+    # Fallback configuration if TensorFlow is not available
+    CLASS_NAMES = []
+    logger.warning("Plant disease detection disabled due to TensorFlow import error")
 
 # ----------------------------
 # Language detection
@@ -189,79 +252,110 @@ def speech_to_text_from_file(filename):
         return f"Error: {e}"
 
 # ----------------------------
-# Plant Disease Detection using Hugging Face API
+# Plant Disease Detection using Local Model (if available)
 # ----------------------------
-def predict_plant_disease_hf_api(image):
-    """Predict plant disease using Hugging Face Inference API with the specified model"""
-    try:
-        # Convert image to bytes
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='JPEG')
-        img_byte_arr = img_byte_arr.getvalue()
+@st.cache_resource
+def load_plant_disease_model():
+    """Load the plant disease detection model from Hugging Face Hub"""
+    if not TENSORFLOW_AVAILABLE:
+        return None
         
-        # Call Hugging Face API with authorization
-        headers = {"Authorization": f"Bearer {PLANT_DISEASE_HF_TOKEN}"}
-        response = requests.post(
-            f"https://api-inference.huggingface.co/models/{PLANT_DISEASE_MODEL_REPO}",
-            headers=headers,
-            data=img_byte_arr
+    try:
+        # Download the model from Hugging Face Hub
+        model_path = hf_hub_download(
+            repo_id=REPO_ID,
+            filename=FILENAME,
+            cache_dir="models"
         )
         
-        if response.status_code == 200:
-            result = response.json()
-            
-            # Handle different response formats from different models
-            if isinstance(result, list) and len(result) > 0:
-                # For models that return a list of predictions
-                prediction = max(result, key=lambda x: x['score'])
-                label = prediction['label']
-                score = prediction['score']
-                
-                # Format the label for better readability
-                formatted_label = label.replace('_', ' ').title()
-                
-                return formatted_label, score
-            elif isinstance(result, dict) and 'label' in result:
-                # For models that return a single prediction as a dict
-                label = result['label']
-                score = result.get('score', 0.9)  # Default score if not provided
-                
-                # Format the label for better readability
-                formatted_label = label.replace('_', ' ').title()
-                
-                return formatted_label, score
-            else:
-                return "Unknown disease or plant type", 0.0
-        else:
-            # Fallback to a simple image analysis if API fails
-            return fallback_disease_detection(image), 0.7
+        # Load the model
+        model = load_model(model_path)
+        return model
     except Exception as e:
-        return f"Error: {str(e)}", 0.0
+        st.error(f"Error loading model: {e}")
+        return None
 
-def fallback_disease_detection(image):
-    """Simple fallback disease detection based on color analysis"""
+def preprocess_image(img, target_size=(224, 224)):
+    """Preprocess image for model prediction"""
     try:
-        # Convert image to RGB
-        img = image.convert('RGB')
-        pixels = img.getdata()
+        # Resize image
+        img = img.resize(target_size)
+        # Convert to array and normalize
+        img_array = image.img_to_array(img)
+        img_array = np.expand_dims(img_array, axis=0) / 255.0
+        return img_array
+    except Exception as e:
+        st.error(f"Error preprocessing image: {e}")
+        return None
+
+def predict_plant_disease(img):
+    """Predict plant disease using the local model"""
+    if not TENSORFLOW_AVAILABLE:
+        return "TensorFlow not available - Plant disease detection disabled", 0.0
+    
+    try:
+        # Load the model
+        model = load_plant_disease_model()
+        if model is None:
+            return "Model not available", 0.0
         
-        # Calculate average color
-        r_avg = sum(p[0] for p in pixels) / len(pixels)
-        g_avg = sum(p[1] for p in pixels) / len(pixels)
-        b_avg = sum(p[2] for p in pixels) / len(pixels)
+        # Preprocess the image
+        img_array = preprocess_image(img)
+        if img_array is None:
+            return "Error processing image", 0.0
         
-        # Simple heuristics for disease detection
-        if g_avg < 100:  # Low green values might indicate disease
-            if r_avg > 150:  # High red might indicate specific diseases
-                return "Possible fungal infection (rust)"
-            elif b_avg < 50:  # Low blue might indicate other issues
-                return "Possible bacterial infection"
-            else:
-                return "Possible nutrient deficiency"
+        # Make prediction
+        predictions = model.predict(img_array)
+        predicted_class_idx = np.argmax(predictions[0])
+        confidence = predictions[0][predicted_class_idx]
+        
+        # Get the class name
+        predicted_class = CLASS_NAMES[predicted_class_idx]
+        
+        # Format the class name for display
+        if "healthy" in predicted_class.lower():
+            return "Plant is healthy", confidence
         else:
-            return "Plant appears healthy"
-    except:
-        return "Unable to analyze image"
+            # Extract plant type and disease name
+            parts = predicted_class.split("___")
+            if len(parts) >= 2:
+                plant_type = parts[0].replace("_", " ")
+                disease_name = parts[1].replace("_", " ")
+                return f"{plant_type} with {disease_name}", confidence
+            else:
+                return predicted_class.replace("_", " "), confidence
+                
+    except Exception as e:
+        return f"Error in prediction: {str(e)}", 0.0
+
+def get_treatment_recommendation(disease):
+    """Get treatment recommendation based on detected disease"""
+    disease_lower = disease.lower()
+    
+    if "healthy" in disease_lower:
+        return "Your plant appears to be healthy! Continue with your current care routine including proper watering, sunlight, and nutrient management."
+    
+    treatment_map = {
+        "blight": "Remove affected leaves, apply copper-based fungicide, ensure proper air circulation, and avoid overhead watering.",
+        "rot": "Remove affected parts, improve drainage, apply appropriate fungicide, and avoid overwatering.",
+        "mildew": "Apply sulfur or potassium bicarbonate-based fungicide, reduce humidity, and ensure good air circulation.",
+        "spot": "Remove affected leaves, apply copper fungicide, avoid overhead watering, and ensure proper spacing between plants.",
+        "rust": "Remove infected leaves, apply fungicide containing myclobutanil or tebuconazole, and ensure good air circulation.",
+        "virus": "Remove and destroy infected plants to prevent spread. Use virus-free planting material and control insect vectors.",
+        "scab": "Apply fungicides containing captan or thiophanate-methyl, and remove fallen leaves in autumn.",
+        "canker": "Prune affected branches, apply fungicide, and avoid wounding trees.",
+        "wilting": "Improve soil drainage, avoid overwatering, and apply appropriate fungicide if fungal infection is suspected.",
+        "mold": "Improve air circulation, reduce humidity, and apply appropriate fungicide.",
+        "anthracnose": "Apply fungicides containing chlorothalonil or thiophanate-methyl, and remove infected plant debris."
+    }
+    
+    # Find the best matching treatment
+    for key, treatment in treatment_map.items():
+        if key in disease_lower:
+            return f"**Treatment:** {treatment}"
+    
+    # Default treatment if no specific match
+    return "For specific treatment recommendations, consult with a local agricultural expert or extension service. General recommendations include removing affected plant parts, improving air circulation, and applying appropriate fungicides if fungal infection is suspected."
 
 # ----------------------------
 # Simplified Routing
@@ -577,9 +671,11 @@ with st.sidebar:
     
     # Navigation
     st.sidebar.header("🧭 Navigation")
+    tab_options = ["Chat", "Plant Disease Detection"]
+    
     st.session_state.current_tab = st.sidebar.radio(
         "Select Mode:",
-        options=["Chat", "Plant Disease Detection"],
+        options=tab_options,
         index=0 if st.session_state.current_tab == "Chat" else 1
     )
 
@@ -875,8 +971,9 @@ if st.session_state.current_tab == "Chat":
                 with st.expander("Sources"):
                     st.json(sources)
 
-else:  # Plant Disease Detection tab
+elif st.session_state.current_tab == "Plant Disease Detection":
     st.markdown('<div class="disease-tab-title">🌿 Plant Disease Detection</div>', unsafe_allow_html=True)
+    
     st.markdown('<div class="uploader-text">Upload an image of a plant leaf to detect potential diseases</div>', unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader(
@@ -888,15 +985,15 @@ else:  # Plant Disease Detection tab
 
     if uploaded_file is not None:
         # Display the uploaded image
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded Image", use_container_width=True)
+        img = Image.open(uploaded_file)
+        st.image(img, caption="Uploaded Image", use_container_width=True)
         
         if st.button("🔍 Detect Disease", type="primary", use_container_width=True):
             with st.spinner("Analyzing image for diseases..."):
-                # Predict disease using Hugging Face API
-                disease, confidence = predict_plant_disease_hf_api(image)
+                # Predict disease using the local model
+                disease, confidence = predict_plant_disease(img)
                 
-                if "Error" not in disease and "API Error" not in disease:
+                if "Error" not in disease:
                     st.markdown(f"""
                         <div class="disease-result">
                             Detection Result: {disease}
@@ -906,26 +1003,12 @@ else:  # Plant Disease Detection tab
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    # Provide additional information based on the detected disease
+                    # Provide additional information based on the detection
                     st.markdown("---")
                     st.markdown('<div class="uploader-text">📋 Recommended Treatment</div>', unsafe_allow_html=True)
                     
-                    # Simple treatment recommendations based on disease type
-                    treatment_text = ""
-                    if "Healthy" in disease:
-                        treatment_text = "Your plant appears to be healthy! Continue with your current care routine."
-                    elif "Blight" in disease:
-                        treatment_text = "**Treatment:** Remove affected leaves, apply copper-based fungicide, and ensure proper air circulation."
-                    elif "Rot" in disease:
-                        treatment_text = "**Treatment:** Remove affected parts, improve drainage, and apply appropriate fungicide."
-                    elif "Mildew" in disease:
-                        treatment_text = "**Treatment:** Apply sulfur or potassium bicarbonate-based fungicide, and reduce humidity."
-                    elif "Spot" in disease:
-                        treatment_text = "**Treatment:** Remove affected leaves, apply copper fungicide, and avoid overhead watering."
-                    elif "Virus" in disease:
-                        treatment_text = "**Treatment:** Remove and destroy infected plants to prevent spread. There is no cure for viral infections."
-                    else:
-                        treatment_text = "For specific treatment recommendations, consult with a local agricultural expert."
+                    # Get treatment recommendation
+                    treatment_text = get_treatment_recommendation(disease)
                     
                     st.markdown(f'<div class="treatment-info">{treatment_text}</div>', unsafe_allow_html=True)
                 else:
